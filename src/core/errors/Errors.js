@@ -28,13 +28,14 @@
  *  ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE
  *  POSSIBILITY OF SUCH DAMAGE.
  */
-import ErrorsBase from './ErrorsBase';
+import ErrorsBase from './ErrorsBase.js';
+
 /**
  * Errors declaration
  * @class
  */
 class Errors extends ErrorsBase {
-    constructor () {
+    constructor() {
         super();
 
         /**
@@ -100,58 +101,64 @@ class Errors extends ErrorsBase {
         /**
          * Error code returned when Protected contents are not supported
          */
-        this.CAPABILITY_MEDIAKEYS_ERROR_CODE   = 24;
+        this.CAPABILITY_MEDIAKEYS_ERROR_CODE = 24;
 
         /**
          * Error code returned when loading the manifest failed
          */
-        this.DOWNLOAD_ERROR_ID_MANIFEST_CODE   = 25;
+        this.DOWNLOAD_ERROR_ID_MANIFEST_CODE = 25;
 
         /**
          * Error code returned when loading the sidx failed
          */
-        this.DOWNLOAD_ERROR_ID_SIDX_CODE            = 26;
+        this.DOWNLOAD_ERROR_ID_SIDX_CODE = 26;
 
         /**
          * Error code returned when loading the media content failed
          */
-        this.DOWNLOAD_ERROR_ID_CONTENT_CODE         = 27;
+        this.DOWNLOAD_ERROR_ID_CONTENT_CODE = 27;
 
         /**
          * Error code returned when loading the init segment failed
          */
-        this.DOWNLOAD_ERROR_ID_INITIALIZATION_CODE  = 28;
+        this.DOWNLOAD_ERROR_ID_INITIALIZATION_CODE = 28;
 
         /**
          * Error code returned when loading the XLink content failed
          */
-        this.DOWNLOAD_ERROR_ID_XLINK_CODE           = 29;
+        this.DOWNLOAD_ERROR_ID_XLINK_CODE = 29;
 
         /**
          * Error code returned when parsing the MPD resulted in a logical error
          */
-        this.MANIFEST_ERROR_ID_PARSE_CODE           = 31;
+        this.MANIFEST_ERROR_ID_PARSE_CODE = 31;
 
         /**
          * Error code returned when no stream (period) has been detected in the manifest
          */
-        this.MANIFEST_ERROR_ID_NOSTREAMS_CODE       = 32;
+        this.MANIFEST_ERROR_ID_NOSTREAMS_CODE = 32;
 
         /**
          * Error code returned when something wrong has happened during parsing and appending subtitles (TTML or VTT)
          */
-        this.TIMED_TEXT_ERROR_ID_PARSE_CODE         = 33;
+        this.TIMED_TEXT_ERROR_ID_PARSE_CODE = 33;
 
         /**
          * Error code returned when a 'muxed' media type has been detected in the manifest. This type is not supported
          */
 
-        this.MANIFEST_ERROR_ID_MULTIPLEXED_CODE     = 34;
+        this.MANIFEST_ERROR_ID_MULTIPLEXED_CODE = 34;
 
         /**
          * Error code returned when a media source type is not supported
          */
         this.MEDIASOURCE_TYPE_UNSUPPORTED_CODE = 35;
+
+        /**
+         * Error code returned when the available Adaptation Sets can not be selected because the corresponding key ids have an invalid key status
+         * @type {number}
+         */
+        this.NO_SUPPORTED_KEY_IDS = 36;
 
         this.MANIFEST_LOADER_PARSING_FAILURE_ERROR_MESSAGE = 'parsing failed for ';
         this.MANIFEST_LOADER_LOADING_FAILURE_ERROR_MESSAGE = 'Failed loading manifest: ';
@@ -169,6 +176,7 @@ class Errors extends ErrorsBase {
         this.CAPABILITY_MEDIAKEYS_ERROR_MESSAGE = 'mediakeys is not supported';
         this.TIMED_TEXT_ERROR_MESSAGE_PARSE = 'parsing error :';
         this.MEDIASOURCE_TYPE_UNSUPPORTED_MESSAGE = 'Error creating source buffer of type : ';
+        this.NO_SUPPORTED_KEY_IDS_MESSAGE = 'All possible Adaptation Sets have an invalid key status';
     }
 }
 

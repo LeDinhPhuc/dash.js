@@ -29,11 +29,12 @@
  *  POSSIBILITY OF SUCH DAMAGE.
  */
 
-import FactoryMaker from '../../core/FactoryMaker';
-import EventBus from '../../core/EventBus';
-import Events from '../../core/events/Events';
-import Debug from '../../core/Debug';
-import Constants from '../constants/Constants';
+import FactoryMaker from '../../core/FactoryMaker.js';
+import EventBus from '../../core/EventBus.js';
+import Events from '../../core/events/Events.js';
+import Debug from '../../core/Debug.js';
+import Constants from '../constants/Constants.js';
+import Settings from '../../core/Settings.js';
 
 
 const READY_STATES_TO_EVENT_NAMES = new Map([
@@ -47,10 +48,15 @@ function VideoModel() {
 
     let instance,
         logger,
+        settings,
         element,
         _currentTime,
+        setCurrentTimeReadyStateFunction,
+        resumeReadyStateFunction,
         TTMLRenderingDiv,
-        previousPlaybackRate;
+        vttRenderingDiv,
+        previousPlaybackRate,
+        timeout;
 
     const VIDEO_MODEL_WRONG_ELEMENT_TYPE = 'element is not video or audio DOM type!';
 
@@ -60,6 +66,7 @@ function VideoModel() {
 
     function setup() {
         logger = Debug(context).getInstance().getLogger(instance);
+        settings = Settings(context).getInstance();
         _currentTime = NaN;
     }
 
@@ -68,31 +75,49 @@ function VideoModel() {
     }
 
     function reset() {
+        clearTimeout(timeout);
         eventBus.off(Events.PLAYBACK_PLAYING, onPlaying, this);
+        stalledStreams.length = 0;
     }
 
-    function onPlaybackCanPlay() {
-        if (element) {
-            element.playbackRate = previousPlaybackRate || 1;
-            element.removeEventListener('canplay', onPlaybackCanPlay);
+    function setConfig(config) {
+        if (!config) {
+            return;
+        }
+
+        if (config.settings) {
+            settings = config.settings;
         }
     }
 
     function setPlaybackRate(value, ignoreReadyState = false) {
-        if (!element) return;
-        if (!ignoreReadyState && element.readyState <= 2 && value > 0) {
-            // If media element hasn't loaded enough data to play yet, wait until it has
-            element.addEventListener('canplay', onPlaybackCanPlay);
-        } else {
-            element.playbackRate = value;
+        if (!element) {
+            return;
         }
+
+        if (ignoreReadyState) {
+            element.playbackRate = value;
+            return;
+        }
+
+        // If media element hasn't loaded enough data to play yet, wait until it has
+        waitForReadyState(Constants.VIDEO_ELEMENT_READY_STATES.HAVE_FUTURE_DATA, () => {
+            element.playbackRate = value;
+        });
     }
 
     //TODO Move the DVR window calculations from MediaPlayer to Here.
     function setCurrentTime(currentTime, stickToBuffered) {
-        _currentTime = currentTime;
-        waitForReadyState(Constants.VIDEO_ELEMENT_READY_STATES.HAVE_METADATA, () => {
-            if (element) {
+        if (element) {
+            if (setCurrentTimeReadyStateFunction && setCurrentTimeReadyStateFunction.func && setCurrentTimeReadyStateFunction.event) {
+                removeEventListener(setCurrentTimeReadyStateFunction.event, setCurrentTimeReadyStateFunction.func);
+            }
+            _currentTime = currentTime;
+            setCurrentTimeReadyStateFunction = waitForReadyState(Constants.VIDEO_ELEMENT_READY_STATES.HAVE_METADATA, () => {
+                if (!element) {
+                    return;
+                }
+
                 // We don't set the same currentTime because it can cause firing unexpected Pause event in IE11
                 // providing playbackRate property equals to zero.
                 if (element.currentTime === _currentTime) {
@@ -107,18 +132,20 @@ function VideoModel() {
                 // setTimeout is used to workaround InvalidStateError in IE11
                 try {
                     _currentTime = stickToBuffered ? stickTimeToBuffered(_currentTime) : _currentTime;
-                    element.currentTime = _currentTime;
+                    if (!isNaN(_currentTime)) {
+                        element.currentTime = _currentTime;
+                    }
                     _currentTime = NaN;
                 } catch (e) {
                     if (element.readyState === 0 && e.code === e.INVALID_STATE_ERR) {
-                        setTimeout(function () {
+                        timeout = setTimeout(function () {
                             element.currentTime = _currentTime;
                             _currentTime = NaN;
                         }, 400);
                     }
                 }
-            }
-        });
+            });
+        }
     }
 
     function stickTimeToBuffered(time) {
@@ -178,12 +205,22 @@ function VideoModel() {
         }
     }
 
+    function setDisableRemotePlayback(value) {
+        if (element) {
+            element.disableRemotePlayback = value;
+        }
+    }
+
     function getSource() {
         return element ? element.src : null;
     }
 
     function getTTMLRenderingDiv() {
         return TTMLRenderingDiv;
+    }
+
+    function getVttRenderingDiv() {
+        return vttRenderingDiv;
     }
 
     function setTTMLRenderingDiv(div) {
@@ -197,6 +234,10 @@ function VideoModel() {
         TTMLRenderingDiv.style.left = 0;
     }
 
+    function setVttRenderingDiv(div) {
+        vttRenderingDiv = div;
+    }
+
     function setStallState(type, state) {
         stallStream(type, state);
     }
@@ -206,12 +247,21 @@ function VideoModel() {
     }
 
     function addStalledStream(type) {
-
         if (type === null || !element || element.seeking || stalledStreams.indexOf(type) !== -1) {
             return;
         }
 
         stalledStreams.push(type);
+
+        if (settings.get().streaming.buffer.syntheticStallEvents.enabled && element && stalledStreams.length === 1 && (settings.get().streaming.buffer.syntheticStallEvents.ignoreReadyState || getReadyState() >= Constants.VIDEO_ELEMENT_READY_STATES.HAVE_FUTURE_DATA)) {
+            // Halt playback until nothing is stalled
+            previousPlaybackRate = element.playbackRate;
+            setPlaybackRate(0, true);
+
+            const event = document.createEvent('Event');
+            event.initEvent('waiting', true, false);
+            element.dispatchEvent(event);
+        }
     }
 
     function removeStalledStream(type) {
@@ -224,6 +274,26 @@ function VideoModel() {
             stalledStreams.splice(index, 1);
         }
 
+        if (settings.get().streaming.buffer.syntheticStallEvents.enabled && element && !isStalled()) {
+            const resume = () => {
+                setPlaybackRate(previousPlaybackRate || 1, settings.get().streaming.buffer.syntheticStallEvents.ignoreReadyState);
+
+                if (!element.paused) {
+                    const event = document.createEvent('Event');
+                    event.initEvent('playing', true, false);
+                    element.dispatchEvent(event);
+                }
+            }
+            
+            if (settings.get().streaming.buffer.syntheticStallEvents.ignoreReadyState) {
+                resume();
+            } else {
+                if (resumeReadyStateFunction && resumeReadyStateFunction.func && resumeReadyStateFunction.event) {
+                    removeEventListener(resumeReadyStateFunction.event, resumeReadyStateFunction.func);
+                }
+                resumeReadyStateFunction = waitForReadyState(Constants.VIDEO_ELEMENT_READY_STATES.HAVE_FUTURE_DATA, resume);
+            }
+        }
     }
 
     function stallStream(type, isStalled) {
@@ -347,13 +417,19 @@ function VideoModel() {
     }
 
     function getVideoRelativeOffsetTop() {
-        const parentElement = element.parentNode.host || element.parentNode;
-        return parentElement ? element.getBoundingClientRect().top - parentElement.getBoundingClientRect().top : NaN;
+        if (element) {
+            const parentElement = element.parentNode.host || element.parentNode;
+            return parentElement ? element.getBoundingClientRect().top - parentElement.getBoundingClientRect().top : NaN;
+        }
+        return NaN;
     }
 
     function getVideoRelativeOffsetLeft() {
-        const parentElement = element.parentNode.host || element.parentNode;
-        return parentElement ? element.getBoundingClientRect().left - parentElement.getBoundingClientRect().left : NaN;
+        if (element) {
+            const parentElement = element.parentNode.host || element.parentNode;
+            return parentElement ? element.getBoundingClientRect().left - parentElement.getBoundingClientRect().left : NaN;
+        }
+        return NaN;
     }
 
     function getTextTracks() {
@@ -411,10 +487,11 @@ function VideoModel() {
         if (targetReadyState === Constants.VIDEO_ELEMENT_READY_STATES.HAVE_NOTHING ||
             getReadyState() >= targetReadyState) {
             callback();
+            return null;
         } else {
             // wait for the appropriate callback before checking again
             const event = READY_STATES_TO_EVENT_NAMES.get(targetReadyState);
-            _listenOnce(event, callback);
+            return _listenOnce(event, callback);
         }
     }
 
@@ -426,46 +503,65 @@ function VideoModel() {
             callback(event);
         };
         addEventListener(event, func);
+
+        return { func, event }
+    }
+
+    function getVideoElementSize() {
+        const hasPixelRatio = settings.get().streaming.abr.usePixelRatioInLimitBitrateByPortal && window.hasOwnProperty('devicePixelRatio');
+        const pixelRatio = hasPixelRatio ? window.devicePixelRatio : 1;
+        const elementWidth = getClientWidth() * pixelRatio;
+        const elementHeight = getClientHeight() * pixelRatio;
+
+        return {
+            elementWidth,
+            elementHeight
+        }
     }
 
     instance = {
-        initialize,
-        setCurrentTime,
-        play,
-        isPaused,
-        pause,
-        isStalled,
-        isSeeking,
-        getTime,
-        getPlaybackRate,
-        setPlaybackRate,
-        getPlayedRanges,
-        getEnded,
-        setStallState,
-        getElement,
-        setElement,
-        setSource,
-        getSource,
-        getTTMLRenderingDiv,
-        setTTMLRenderingDiv,
-        getPlaybackQuality,
         addEventListener,
-        removeEventListener,
-        getReadyState,
-        getBufferRange,
-        getClientWidth,
-        getClientHeight,
-        getTextTracks,
-        getTextTrack,
         addTextTrack,
         appendChild,
-        removeChild,
-        getVideoWidth,
+        getBufferRange,
+        getClientHeight,
+        getClientWidth,
+        getElement,
+        getEnded,
+        getPlaybackQuality,
+        getPlaybackRate,
+        getPlayedRanges,
+        getReadyState,
+        getSource,
+        getTTMLRenderingDiv,
+        getTextTrack,
+        getTextTracks,
+        getTime,
+        getVideoElementSize,
         getVideoHeight,
-        getVideoRelativeOffsetTop,
         getVideoRelativeOffsetLeft,
+        getVideoRelativeOffsetTop,
+        getVideoWidth,
+        getVttRenderingDiv,
+        initialize,
+        isPaused,
+        isSeeking,
+        isStalled,
+        pause,
+        play,
+        removeChild,
+        removeEventListener,
+        reset,
+        setConfig,
+        setCurrentTime,
+        setDisableRemotePlayback,
+        setElement,
+        setPlaybackRate,
+        setSource,
+        setStallState,
+        setTTMLRenderingDiv,
+        setVttRenderingDiv,
         waitForReadyState,
-        reset
     };
 
     setup();

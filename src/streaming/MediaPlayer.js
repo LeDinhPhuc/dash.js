@@ -28,63 +28,63 @@
  *  ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE
  *  POSSIBILITY OF SUCH DAMAGE.
  */
-import cea608parser from '../../externals/cea608-parser';
-import Constants from './constants/Constants';
-import DashConstants from '../dash/constants/DashConstants';
-import MetricsConstants from './constants/MetricsConstants';
-import PlaybackController from './controllers/PlaybackController';
-import StreamController from './controllers/StreamController';
-import GapController from './controllers/GapController';
-import CatchupController from './controllers/CatchupController';
-import ServiceDescriptionController from './controllers/ServiceDescriptionController';
-import MediaController from './controllers/MediaController';
-import BaseURLController from './controllers/BaseURLController';
-import ManifestLoader from './ManifestLoader';
-import ErrorHandler from './utils/ErrorHandler';
-import Capabilities from './utils/Capabilities';
-import CapabilitiesFilter from './utils/CapabilitiesFilter';
-import RequestModifier from './utils/RequestModifier';
-import URIFragmentModel from './models/URIFragmentModel';
-import ManifestModel from './models/ManifestModel';
-import MediaPlayerModel from './models/MediaPlayerModel';
-import AbrController from './controllers/AbrController';
-import SchemeLoaderFactory from './net/SchemeLoaderFactory';
-import VideoModel from './models/VideoModel';
-import CmcdModel from './models/CmcdModel';
-import DOMStorage from './utils/DOMStorage';
-import Debug from './../core/Debug';
-import Errors from './../core/errors/Errors';
-import EventBus from './../core/EventBus';
-import Events from './../core/events/Events';
-import MediaPlayerEvents from './MediaPlayerEvents';
-import FactoryMaker from '../core/FactoryMaker';
-import Settings from '../core/Settings';
-import {
-    getVersionString
-}
-    from '../core/Version';
+import {Cta608Parser} from '@svta/common-media-library/cta/608/Cta608Parser';
+import Constants from './constants/Constants.js';
+import DashConstants from '../dash/constants/DashConstants.js';
+import MetricsConstants from './constants/MetricsConstants.js';
+import PlaybackController from './controllers/PlaybackController.js';
+import StreamController from './controllers/StreamController.js';
+import GapController from './controllers/GapController.js';
+import CatchupController from './controllers/CatchupController.js';
+import ServiceDescriptionController from '../dash/controllers/ServiceDescriptionController.js';
+import ContentSteeringController from '../dash/controllers/ContentSteeringController.js';
+import MediaController from './controllers/MediaController.js';
+import BaseURLController from './controllers/BaseURLController.js';
+import ManifestLoader from './ManifestLoader.js';
+import ErrorHandler from './utils/ErrorHandler.js';
+import Capabilities from './utils/Capabilities.js';
+import CapabilitiesFilter from './utils/CapabilitiesFilter.js';
+import URIFragmentModel from './models/URIFragmentModel.js';
+import ManifestModel from './models/ManifestModel.js';
+import MediaPlayerModel from './models/MediaPlayerModel.js';
+import AbrController from './controllers/AbrController.js';
+import SchemeLoaderFactory from './net/SchemeLoaderFactory.js';
+import VideoModel from './models/VideoModel.js';
+import CmcdModel from './models/CmcdModel.js';
+import CmsdModel from './models/CmsdModel.js';
+import DOMStorage from './utils/DOMStorage.js';
+import Debug from './../core/Debug.js';
+import Errors from './../core/errors/Errors.js';
+import EventBus from './../core/EventBus.js';
+import Events from './../core/events/Events.js';
+import MediaPlayerEvents from './MediaPlayerEvents.js';
+import FactoryMaker from '../core/FactoryMaker.js';
+import Settings from '../core/Settings.js';
+import {getVersionString} from '../core/Version.js';
 
 //Dash
-import SegmentBaseController from '../dash/controllers/SegmentBaseController';
-import DashAdapter from '../dash/DashAdapter';
-import DashMetrics from '../dash/DashMetrics';
-import TimelineConverter from '../dash/utils/TimelineConverter';
+import SegmentBaseController from '../dash/controllers/SegmentBaseController.js';
+import DashAdapter from '../dash/DashAdapter.js';
+import DashMetrics from '../dash/DashMetrics.js';
+import TimelineConverter from '../dash/utils/TimelineConverter.js';
 import {
     HTTPRequest
-} from './vo/metrics/HTTPRequest';
-import BASE64 from '../../externals/base64';
+} from './vo/metrics/HTTPRequest.js';
+import BASE64 from '../../externals/base64.js';
 import ISOBoxer from 'codem-isoboxer';
-import DashJSError from './vo/DashJSError';
-import {checkParameterType} from './utils/SupervisorTools';
-import ManifestUpdater from './ManifestUpdater';
-import URLUtils from '../streaming/utils/URLUtils';
-import BoxParser from './utils/BoxParser';
-import TextController from './text/TextController';
-import CustomParametersModel from './models/CustomParametersModel';
+import DashJSError from './vo/DashJSError.js';
+import {checkParameterType} from './utils/SupervisorTools.js';
+import ManifestUpdater from './ManifestUpdater.js';
+import URLUtils from '../streaming/utils/URLUtils.js';
+import BoxParser from './utils/BoxParser.js';
+import TextController from './text/TextController.js';
+import CustomParametersModel from './models/CustomParametersModel.js';
+import ThroughputController from './controllers/ThroughputController.js';
+import ClientDataReportingController from './controllers/ClientDataReportingController.js';
 
 /**
  * The media types
- * @typedef {("video" | "audio" | "text" | "image")} MediaType
+ * @typedef {('video' | 'audio' | 'text' | 'image')} MediaType
  */
 
 /**
@@ -119,6 +119,11 @@ function MediaPlayer() {
      * @inner
      */
     const MEDIA_PLAYER_NOT_INITIALIZED_ERROR = 'MediaPlayer not initialized!';
+    /**
+     * @constant {string} ARRAY_NOT_SUPPORTED_ERROR error string thrown when settings object was called using an array.
+     * @inner
+     */
+    const ARRAY_NOT_SUPPORTED_ERROR = 'Array type not supported for settings!';
 
     const context = this.context;
     const eventBus = EventBus(context).getInstance();
@@ -133,7 +138,9 @@ function MediaPlayer() {
         streamingInitialized,
         playbackInitialized,
         autoPlay,
+        providedStartTime,
         abrController,
+        throughputController,
         schemeLoaderFactory,
         timelineConverter,
         mediaController,
@@ -153,14 +160,17 @@ function MediaPlayer() {
         gapController,
         playbackController,
         serviceDescriptionController,
+        contentSteeringController,
         catchupController,
         dashMetrics,
         manifestModel,
         cmcdModel,
+        cmsdModel,
         videoModel,
         uriFragmentModel,
         domStorage,
-        segmentBaseController;
+        segmentBaseController,
+        clientDataReportingController;
 
     /*
     ---------------------------------------------------------------------------
@@ -175,6 +185,7 @@ function MediaPlayer() {
         playbackInitialized = false;
         streamingInitialized = false;
         autoPlay = true;
+        providedStartTime = NaN;
         protectionController = null;
         offlineController = null;
         protectionData = null;
@@ -213,11 +224,20 @@ function MediaPlayer() {
         if (config.gapController) {
             gapController = config.gapController;
         }
+        if (config.throughputController) {
+            throughputController = config.throughputController
+        }
         if (config.playbackController) {
             playbackController = config.playbackController;
         }
         if (config.serviceDescriptionController) {
             serviceDescriptionController = config.serviceDescriptionController
+        }
+        if (config.contentSteeringController) {
+            contentSteeringController = config.contentSteeringController;
+        }
+        if (config.clientDataReportingController) {
+            clientDataReportingController = config.clientDataReportingController;
         }
         if (config.catchupController) {
             catchupController = config.catchupController;
@@ -240,6 +260,10 @@ function MediaPlayer() {
         if (config.settings) {
             settings = config.settings;
         }
+
+        if (config.dashMetrics) {
+            dashMetrics = config.dashMetrics;
+        }
     }
 
     /**
@@ -252,18 +276,22 @@ function MediaPlayer() {
      *
      * @param {HTML5MediaElement=} view - Optional arg to set the video element. {@link module:MediaPlayer#attachView attachView()}
      * @param {string=} source - Optional arg to set the media source. {@link module:MediaPlayer#attachSource attachSource()}
-     * @param {boolean=} AutoPlay - Optional arg to set auto play. {@link module:MediaPlayer#setAutoPlay setAutoPlay()}
-     * @see {@link module:MediaPlayer#attachView attachView()}
+     * @param {boolean=} autoPlay - Optional arg to set auto play. {@link module:MediaPlayer#setAutoPlay setAutoPlay()}
+     * @param {number|string} startTime - For VoD content the start time is relative to the start time of the first period.
+     * For live content
+     * If the parameter starts from prefix posix: it signifies the absolute time range defined in seconds of Coordinated Universal Time (ITU-R TF.460-6). This is the number of seconds since 01-01-1970 00:00:00 UTC. Fractions of seconds may be optionally specified down to the millisecond level.
+     * If no posix prefix is used the starttime is relative to MPD@availabilityStartTime
      * @see {@link module:MediaPlayer#attachSource attachSource()}
      * @see {@link module:MediaPlayer#setAutoPlay setAutoPlay()}
      * @memberof module:MediaPlayer
      * @instance
      */
-    function initialize(view, source, AutoPlay) {
+    function initialize(view, source, autoPlay, startTime = NaN) {
         if (!capabilities) {
             capabilities = Capabilities(context).getInstance();
             capabilities.setConfig({
-                settings
+                settings,
+                protectionController
             })
         }
 
@@ -281,11 +309,11 @@ function MediaPlayer() {
 
             // init some controllers and models
             timelineConverter = TimelineConverter(context).getInstance();
+            if (!throughputController) {
+                throughputController = ThroughputController(context).getInstance();
+            }
             if (!abrController) {
                 abrController = AbrController(context).getInstance();
-                abrController.setConfig({
-                    settings: settings
-                });
             }
 
             if (!schemeLoaderFactory) {
@@ -316,6 +344,10 @@ function MediaPlayer() {
                 serviceDescriptionController = ServiceDescriptionController(context).getInstance();
             }
 
+            if (!contentSteeringController) {
+                contentSteeringController = ContentSteeringController(context).getInstance();
+            }
+
             if (!capabilitiesFilter) {
                 capabilitiesFilter = CapabilitiesFilter(context).getInstance();
             }
@@ -325,6 +357,10 @@ function MediaPlayer() {
             manifestModel = ManifestModel(context).getInstance();
 
             cmcdModel = CmcdModel(context).getInstance();
+
+            cmsdModel = CmsdModel(context).getInstance();
+
+            clientDataReportingController = ClientDataReportingController(context).getInstance();
 
             dashMetrics = DashMetrics(context).getInstance({
                 settings: settings
@@ -336,7 +372,7 @@ function MediaPlayer() {
 
             adapter.setConfig({
                 constants: Constants,
-                cea608parser: cea608parser,
+                cea608parser: new Cta608Parser(),
                 errHandler: errHandler,
                 BASE64: BASE64
             });
@@ -346,11 +382,12 @@ function MediaPlayer() {
             }
 
             baseURLController.setConfig({
-                adapter: adapter
+                adapter,
+                contentSteeringController
             });
 
             serviceDescriptionController.setConfig({
-                adapter: adapter
+                adapter
             });
 
             if (!segmentBaseController) {
@@ -363,7 +400,6 @@ function MediaPlayer() {
                     eventBus: eventBus,
                     debug: debug,
                     boxParser: BoxParser(context).getInstance(),
-                    requestModifier: RequestModifier(context).getInstance(),
                     errors: Errors
                 });
             }
@@ -372,7 +408,9 @@ function MediaPlayer() {
             mediaController.setConfig({
                 domStorage,
                 settings,
-                customParametersModel
+                mediaPlayerModel,
+                customParametersModel,
+                videoModel
             });
 
             mediaPlayerModel.setConfig({
@@ -380,8 +418,19 @@ function MediaPlayer() {
                 serviceDescriptionController
             });
 
+            contentSteeringController.setConfig({
+                adapter,
+                errHandler,
+                dashMetrics,
+                mediaPlayerModel,
+                manifestModel,
+                serviceDescriptionController,
+                throughputController,
+                eventBus
+            })
+
             restoreDefaultUTCTimingSources();
-            setAutoPlay(AutoPlay !== undefined ? AutoPlay : true);
+            setAutoPlay(autoPlay !== undefined ? autoPlay : true);
 
             // Detect and initialize offline module to support offline contents playback
             _detectOffline();
@@ -392,7 +441,7 @@ function MediaPlayer() {
         }
 
         if (source) {
-            attachSource(source);
+            attachSource(source, startTime);
         }
 
         logger.info('[dash.js ' + getVersion() + '] ' + 'MediaPlayer has been initialized');
@@ -422,7 +471,6 @@ function MediaPlayer() {
         }
         if (customParametersModel) {
             customParametersModel.reset();
-            customParametersModel = null;
         }
 
         settings.reset();
@@ -485,6 +533,19 @@ function MediaPlayer() {
     }
 
     /**
+     * Use this method to trigger an event via the eventBus {@link MediaPlayerEvents}
+     *
+     * @param {string} type - {@link MediaPlayerEvents}
+     * @param {object} payload - Payload of the event
+     * @param {Object} filters - Define a "streamId" and/or a "mediaType" for which this event is valid, e.g. {streamId, mediaType}
+     * @memberof module:MediaPlayer
+     * @instance
+     */
+    function trigger(type, payload, filters) {
+        eventBus.trigger(type, payload, filters);
+    }
+
+    /**
      * Current version of Dash.js
      * @returns {string} the current dash.js version string.
      * @memberof module:MediaPlayer
@@ -514,6 +575,28 @@ function MediaPlayer() {
     */
 
     /**
+     * Causes the player to begin streaming the media as set by the {@link module:MediaPlayer#attachSource attachSource()}
+     * method in preparation for playing. It specifically does not require a view to be attached with {@link module:MediaPlayer#attachSource attachView()} to begin preloading.
+     * When a view is attached after preloading, the buffered data is transferred to the attached mediaSource buffers.
+     *
+     * @see {@link module:MediaPlayer#attachSource attachSource()}
+     * @see {@link module:MediaPlayer#attachView attachView()}
+     * @memberof module:MediaPlayer
+     * @throws {@link module:MediaPlayer~SOURCE_NOT_ATTACHED_ERROR SOURCE_NOT_ATTACHED_ERROR} if called before attachSource function
+     * @instance
+     */
+    function preload() {
+        if (videoModel.getElement() || streamingInitialized) {
+            return;
+        }
+        if (source) {
+            _initializePlayback(providedStartTime);
+        } else {
+            throw SOURCE_NOT_ATTACHED_ERROR;
+        }
+    }
+
+    /**
      * The play method initiates playback of the media defined by the {@link module:MediaPlayer#attachSource attachSource()} method.
      * This method will call play on the native Video Element.
      *
@@ -527,7 +610,7 @@ function MediaPlayer() {
             throw PLAYBACK_NOT_INITIALIZED_ERROR;
         }
         if (!autoPlay || (isPaused() && playbackInitialized)) {
-            playbackController.play();
+            playbackController.play(true);
         }
     }
 
@@ -563,8 +646,9 @@ function MediaPlayer() {
      * Sets the currentTime property of the attached video element.  If it is a live stream with a
      * timeShiftBufferLength, then the DVR window offset will be automatically calculated.
      *
-     * @param {number} value - A relative time, in seconds, based on the return value of the {@link module:MediaPlayer#duration duration()} method is expected
-     * @see {@link module:MediaPlayer#getDVRSeekOffset getDVRSeekOffset()}
+     * @param {number} value - A relative time, in seconds, based on the return value of the {@link module:MediaPlayer#duration duration()} method is expected.
+     * For dynamic streams duration() returns DVRWindow.end - DVRWindow.start. Consequently, the value provided to this function should be relative to DVRWindow.start.
+     * @see {@link module:MediaPlayer#getDvrSeekOffset getDvrSeekOffset()}
      * @throws {@link module:MediaPlayer~PLAYBACK_NOT_INITIALIZED_ERROR PLAYBACK_NOT_INITIALIZED_ERROR} if called before initializePlayback function
      * @throws {@link Constants#BAD_ARGUMENT_ERROR BAD_ARGUMENT_ERROR} if called with an invalid argument, not number type or is NaN.
      * @memberof module:MediaPlayer
@@ -581,8 +665,78 @@ function MediaPlayer() {
             throw Constants.BAD_ARGUMENT_ERROR;
         }
 
-        let s = playbackController.getIsDynamic() ? getDVRSeekOffset(value) : value;
-        playbackController.seek(s);
+        if (value < 0) {
+            value = 0;
+        }
+
+        let s = playbackController.getIsDynamic() ? getDvrSeekOffset(value) : value;
+
+        // For VoD limit the seek to the duration of the content
+        const videoElement = getVideoElement();
+        if (!playbackController.getIsDynamic() && videoElement.duration) {
+            s = Math.min(videoElement.duration, s);
+        }
+
+        playbackController.seek(s, false, false, true);
+    }
+
+    /**
+     * Sets the currentTime property of the attached video element. Compared to the seek() function this function does not add the DVR window offset. Instead, it takes a presentation time relative to the availability start time.
+     * For VoD this function behaves similar to the seek() function.
+
+     * @param {number} value - A presentation time in seconds
+     * @throws {@link module:MediaPlayer~PLAYBACK_NOT_INITIALIZED_ERROR PLAYBACK_NOT_INITIALIZED_ERROR} if called before initializePlayback function
+     * @throws {@link Constants#BAD_ARGUMENT_ERROR BAD_ARGUMENT_ERROR} if called with an invalid argument, not number type or is NaN.
+     * @memberof module:MediaPlayer
+     * @instance
+     */
+    function seekToPresentationTime(seektime) {
+        if (!playbackInitialized) {
+            throw PLAYBACK_NOT_INITIALIZED_ERROR;
+        }
+
+        checkParameterType(seektime, 'number');
+
+        if (isNaN(seektime)) {
+            throw Constants.BAD_ARGUMENT_ERROR;
+        }
+
+        if (seektime < 0) {
+            seektime = 0;
+        }
+
+
+        // For VoD limit the seek to the duration of the content
+        const videoElement = getVideoElement();
+        if (!playbackController.getIsDynamic() && videoElement.duration) {
+            seektime = Math.min(videoElement.duration, seektime);
+        }
+
+        // For live, take live delay into account
+        if (playbackController.getIsDynamic()) {
+            const type = streamController && streamController.hasVideoTrack() ? Constants.VIDEO : Constants.AUDIO;
+            let metric = dashMetrics.getCurrentDVRInfo(type);
+            if (!metric) {
+                return;
+            }
+            seektime = _adjustSeekTimeBasedOnLiveDelay(seektime, metric)
+            if (seektime < metric.range.start) {
+                seektime = metric.range.start
+            }
+        }
+
+        playbackController.seek(seektime, false, false, true);
+    }
+
+    /**
+     * Seeks back to the original live edge (live edge as calculated at playback start). Only applies to live streams, for VoD streams this call will be ignored.
+     */
+    function seekToOriginalLive() {
+        if (!playbackInitialized || !isDynamic()) {
+            return;
+        }
+
+        playbackController.seekToOriginalLive();
     }
 
     /**
@@ -728,22 +882,6 @@ function MediaPlayer() {
     }
 
     /**
-     * The timeShiftBufferLength (DVR Window), in seconds.
-     *
-     * @returns {number} The window of allowable play time behind the live point of a live stream as defined in the manifest.
-     * @memberof module:MediaPlayer
-     * @instance
-     */
-    function getDVRWindowSize() {
-        const type = streamController && streamController.hasVideoTrack() ? Constants.VIDEO : Constants.AUDIO;
-        let metric = dashMetrics.getCurrentDVRInfo(type);
-        if (!metric) {
-            return 0;
-        }
-        return metric.manifestInfo.dvrWindowSize;
-    }
-
-    /**
      * This method should only be used with a live stream that has a valid timeShiftBufferLength (DVR Window).
      * NOTE - If you do not need the raw offset value (i.e. media analytics, tracking, etc) consider using the {@link module:MediaPlayer#seek seek()} method
      * which will calculate this value for you and set the video element's currentTime property all in one simple call.
@@ -754,22 +892,25 @@ function MediaPlayer() {
      * @memberof module:MediaPlayer
      * @instance
      */
-    function getDVRSeekOffset(value) {
+    function getDvrSeekOffset(value) {
         const type = streamController && streamController.hasVideoTrack() ? Constants.VIDEO : Constants.AUDIO;
         let metric = dashMetrics.getCurrentDVRInfo(type);
         if (!metric) {
             return 0;
         }
 
-        let liveDelay = playbackController.getLiveDelay();
-
         let val = metric.range.start + value;
 
-        if (val > (metric.range.end - liveDelay)) {
-            val = metric.range.end - liveDelay;
+        return _adjustSeekTimeBasedOnLiveDelay(val, metric);
+    }
+
+    function _adjustSeekTimeBasedOnLiveDelay(seektime, metric) {
+        let liveDelay = playbackController.getOriginalLiveDelay();
+        if (seektime > (metric.range.end - liveDelay)) {
+            seektime = metric.range.end - liveDelay;
         }
 
-        return val;
+        return seektime;
     }
 
     /**
@@ -783,42 +924,93 @@ function MediaPlayer() {
             throw PLAYBACK_NOT_INITIALIZED_ERROR;
         }
 
-        return playbackController.getLiveDelay();
+        return playbackController.getOriginalLiveDelay();
     }
 
     /**
-     * Current time of the playhead, in seconds.
+     * Current playhead time in seconds.
      *
-     * If called with no arguments then the returned time value is time elapsed since the start point of the first stream, or if it is a live stream, then the time will be based on the return value of the {@link module:MediaPlayer#duration duration()} method.
-     * However if a stream ID is supplied then time is relative to the start of that stream, or is null if there is no such stream id in the manifest.
+     * If called with no arguments then the returned value is the current time of the video element.
+     * However, if a period ID is supplied then time is relative to the start of that period, or is null if there is no such period id in the manifest.
      *
-     * @param {string} streamId - The ID of a stream that the returned playhead time must be relative to the start of. If undefined, then playhead time is relative to the first stream.
+     * @param {string} periodId - The ID of a period that the returned playhead time must be relative to the start of. If undefined, then playhead time is relative to the first period or the AST.
      * @returns {number} The current playhead time of the media, or null.
      * @throws {@link module:MediaPlayer~PLAYBACK_NOT_INITIALIZED_ERROR PLAYBACK_NOT_INITIALIZED_ERROR} if called before initializePlayback function
      * @memberof module:MediaPlayer
      * @instance
      */
-    function time(streamId) {
+    function time(periodId = '') {
         if (!playbackInitialized) {
             throw PLAYBACK_NOT_INITIALIZED_ERROR;
         }
         let t = getVideoElement().currentTime;
 
-        if (streamId !== undefined) {
-            t = streamController.getTimeRelativeToStreamId(t, streamId);
-        } else if (playbackController.getIsDynamic()) {
-            const type = streamController && streamController.hasVideoTrack() ? Constants.VIDEO : Constants.AUDIO;
-            let metric = dashMetrics.getCurrentDVRInfo(type);
-            t = (metric === null || t === 0) ? 0 : Math.max(0, (t - metric.range.start));
+        if (periodId !== '') {
+            t = streamController.getTimeRelativeToStreamId(t, periodId);
         }
 
         return t;
     }
 
     /**
-     * Duration of the media's playback, in seconds.
+     * Returns the current playhead time relative to the start of the DVR window.
+     * For VoD this method returns the same value as time()
+     * @returns {number} The current playhead time of the media relative to the start of the DVR window
+     * @throws {@link module:MediaPlayer~PLAYBACK_NOT_INITIALIZED_ERROR PLAYBACK_NOT_INITIALIZED_ERROR} if called before initializePlayback function
+     * @memberof module:MediaPlayer
+     * @instance
+     */
+    function timeInDvrWindow() {
+        if (!playbackInitialized) {
+            throw PLAYBACK_NOT_INITIALIZED_ERROR;
+        }
+
+        if (!playbackController.getIsDynamic()) {
+            return time()
+        }
+
+        let t = getVideoElement().currentTime;
+        const type = streamController && streamController.hasVideoTrack() ? Constants.VIDEO : Constants.AUDIO;
+        let metric = dashMetrics.getCurrentDVRInfo(type);
+        t = (metric === null || t === 0) ? 0 : Math.max(0, (t - metric.range.start));
+
+        return t
+    }
+
+    /**
+     * Returns information about the current DVR window including the start time, the end time, the window size.
+     * @returns {{startAsUtc: (*|number), size: number, endAsUtc: (*|number), start, end}|{}}
+     */
+    function getDvrWindow() {
+        if (!playbackInitialized) {
+            throw PLAYBACK_NOT_INITIALIZED_ERROR;
+        }
+
+        const type = streamController && streamController.hasVideoTrack() ? Constants.VIDEO : Constants.AUDIO;
+        let metric = dashMetrics.getCurrentDVRInfo(type);
+
+        if (!metric) {
+            return {}
+        }
+
+        let offset = 0;
+        const isDynamic = playbackController.getIsDynamic();
+        if (isDynamic) {
+            offset = metric.manifestInfo.availableFrom.getTime() / 1000;
+        }
+        return {
+            start: metric.range.start,
+            end: metric.range.end,
+            startAsUtc: isDynamic ? offset + metric.range.start : NaN,
+            endAsUtc: isDynamic ? offset + metric.range.end : NaN,
+            size: metric.range.end - metric.range.start
+        }
+    }
+
+    /**
+     * Total duration of the media in seconds.
      *
-     * @returns {number} The current duration of the media. For a dynamic stream this will return DVRWindow.end - DVRWindow.start
+     * @returns {number} The total duration of the media. For a dynamic stream this will return DVRWindow.end - DVRWindow.start
      * @memberof module:MediaPlayer
      * @throws {@link module:MediaPlayer~PLAYBACK_NOT_INITIALIZED_ERROR PLAYBACK_NOT_INITIALIZED_ERROR} if called before initializePlayback function
      * @instance
@@ -838,8 +1030,8 @@ function MediaPlayer() {
     }
 
     /**
-     * Use this method to get the current playhead time as an absolute value, the time in seconds since midnight UTC, Jan 1 1970.
-     * Note - this property only has meaning for live streams. If called before play() has begun, it will return a value of NaN.
+     * Use this method to get the current playhead time as an absolute value in seconds since midnight UTC, Jan 1 1970.
+     * Note - this property only has meaning for live streams and is NaN for VoD content. If called before play() has begun, it will return a value of NaN.
      *
      * @returns {number} The current playhead time as UTC timestamp.
      * @throws {@link module:MediaPlayer~PLAYBACK_NOT_INITIALIZED_ERROR PLAYBACK_NOT_INITIALIZED_ERROR} if called before initializePlayback function
@@ -850,121 +1042,22 @@ function MediaPlayer() {
         if (!playbackInitialized) {
             throw PLAYBACK_NOT_INITIALIZED_ERROR;
         }
-        if (time() < 0) {
-            return NaN;
+
+        if (!playbackController.getIsDynamic() || time() < 0) {
+            return NaN
         }
-        return _getAsUTC(time());
-    }
 
-    /**
-     * Use this method to get the current duration as an absolute value, the time in seconds since midnight UTC, Jan 1 1970.
-     * Note - this property only has meaning for live streams.
-     *
-     * @returns {number} The current duration as UTC timestamp.
-     * @throws {@link module:MediaPlayer~PLAYBACK_NOT_INITIALIZED_ERROR PLAYBACK_NOT_INITIALIZED_ERROR} if called before initializePlayback function
-     * @memberof module:MediaPlayer
-     * @instance
-     */
-    function durationAsUTC() {
-        if (!playbackInitialized) {
-            throw PLAYBACK_NOT_INITIALIZED_ERROR;
+        const type = streamController && streamController.hasVideoTrack() ? Constants.VIDEO : Constants.AUDIO;
+        let metric = dashMetrics.getCurrentDVRInfo(type);
+        let availabilityStartTime,
+            utcValue;
+
+        if (!metric) {
+            return 0;
         }
-        return _getAsUTC(duration());
-    }
-
-    /*
-    ---------------------------------------------------------------------------
-
-        AUTO BITRATE
-
-    ---------------------------------------------------------------------------
-    */
-    /**
-     * Gets the top quality BitrateInfo checking portal limit and max allowed.
-     * It calls getMaxAllowedIndexFor internally
-     *
-     * @param {MediaType} type - 'video' or 'audio'
-     * @memberof module:MediaPlayer
-     * @returns {BitrateInfo | null}
-     * @throws {@link module:MediaPlayer~STREAMING_NOT_INITIALIZED_ERROR STREAMING_NOT_INITIALIZED_ERROR} if called before initializePlayback function
-     * @instance
-     */
-    function getTopBitrateInfoFor(type) {
-        if (!streamingInitialized) {
-            throw STREAMING_NOT_INITIALIZED_ERROR;
-        }
-        return abrController.getTopBitrateInfoFor(type);
-    }
-
-    /**
-     * Gets the current download quality for media type video, audio or images. For video and audio types the ABR
-     * rules update this value before every new download unless autoSwitchBitrate is set to false. For 'image'
-     * type, thumbnails, there is no ABR algorithm and quality is set manually.
-     *
-     * @param {MediaType} type - 'video', 'audio' or 'image' (thumbnails)
-     * @returns {number} the quality index, 0 corresponding to the lowest bitrate
-     * @memberof module:MediaPlayer
-     * @see {@link module:MediaPlayer#setQualityFor setQualityFor()}
-     * @throws {@link module:MediaPlayer~STREAMING_NOT_INITIALIZED_ERROR STREAMING_NOT_INITIALIZED_ERROR} if called before initializePlayback function
-     * @instance
-     */
-    function getQualityFor(type) {
-        if (!streamingInitialized) {
-            throw STREAMING_NOT_INITIALIZED_ERROR;
-        }
-        if (type === Constants.IMAGE) {
-            const activeStream = getActiveStream();
-            if (!activeStream) {
-                return -1;
-            }
-            const thumbnailController = activeStream.getThumbnailController();
-
-            return !thumbnailController ? -1 : thumbnailController.getCurrentTrackIndex();
-        }
-        return abrController.getQualityFor(type);
-    }
-
-    /**
-     * Sets the current quality for media type instead of letting the ABR Heuristics automatically selecting it.
-     * This value will be overwritten by the ABR rules unless autoSwitchBitrate is set to false.
-     *
-     * @param {MediaType} type - 'video', 'audio' or 'image'
-     * @param {number} value - the quality index, 0 corresponding to the lowest bitrate
-     * @param {boolean} forceReplace - true if segments have to be replaced by segments of the new quality
-     * @memberof module:MediaPlayer
-     * @see {@link module:MediaPlayer#getQualityFor getQualityFor()}
-     * @throws {@link module:MediaPlayer~STREAMING_NOT_INITIALIZED_ERROR STREAMING_NOT_INITIALIZED_ERROR} if called before initializePlayback function
-     * @instance
-     */
-    function setQualityFor(type, value, forceReplace = false) {
-        if (!streamingInitialized) {
-            throw STREAMING_NOT_INITIALIZED_ERROR;
-        }
-        if (type === Constants.IMAGE) {
-            const activeStream = getActiveStream();
-            if (!activeStream) {
-                return;
-            }
-            const thumbnailController = activeStream.getThumbnailController();
-            if (thumbnailController) {
-                thumbnailController.setTrackByIndex(value);
-            }
-        }
-        abrController.setPlaybackQuality(type, streamController.getActiveStreamInfo(), value, { forceReplace });
-    }
-
-    /**
-     * Update the video element size variables
-     * Should be called on window resize (or any other time player is resized). Fullscreen does trigger a window resize event.
-     *
-     * Once windowResizeEventCalled = true, abrController.checkPortalSize() will use element size variables rather than querying clientWidth every time.
-     *
-     * @memberof module:MediaPlayer
-     * @instance
-     */
-    function updatePortalSize() {
-        abrController.setElementSize();
-        abrController.setWindowResizeEventCalled(true);
+        availabilityStartTime = metric.manifestInfo.availableFrom.getTime() / 1000;
+        utcValue = availabilityStartTime + time()
+        return utcValue;
     }
 
     /*
@@ -1140,18 +1233,57 @@ function MediaPlayer() {
     }
 
     /**
-     * Returns the average throughput computed in the ABR logic
+     * Returns the average latency computed in the ThroughputController in milliseconds
      *
      * @param {MediaType} type
+     * @param {string} calculationMode
+     * @param {number} sampleSize
      * @return {number} value
      * @memberof module:MediaPlayer
      * @instance
      */
-    function getAverageThroughput(type) {
-        const throughputHistory = abrController.getThroughputHistory();
-        const isDynamic = playbackController.getIsDynamic();
+    function getAverageLatency(type, calculationMode = null, sampleSize = NaN) {
+        return throughputController ? throughputController.getAverageLatency(type, calculationMode, sampleSize) : 0;
+    }
 
-        return throughputHistory ? throughputHistory.getAverageThroughput(type, isDynamic) : 0;
+    /**
+     * Returns the average throughput computed in the ThroughputController in kbit/s
+     *
+     * @param {MediaType} type
+     * @param {string} calculationMode
+     * @param {number} sampleSize
+     * @return {number} value
+     * @memberof module:MediaPlayer
+     * @instance
+     */
+    function getAverageThroughput(type, calculationMode = null, sampleSize = NaN) {
+        return throughputController ? throughputController.getAverageThroughput(type, calculationMode, sampleSize) : 0;
+    }
+
+    /**
+     * Returns the safe average throughput computed in the ThroughputController in kbit/s. The safe average throughput is the average throughput multiplied by bandwidthSafetyFactor
+     *
+     * @param {MediaType} type
+     * @param {string} calculationMode
+     * @param {number} sampleSize
+     * @return {number} value
+     * @memberof module:MediaPlayer
+     * @instance
+     */
+    function getSafeAverageThroughput(type, calculationMode = null, sampleSize = NaN) {
+        return throughputController ? throughputController.getSafeAverageThroughput(type, calculationMode, sampleSize) : 0;
+    }
+
+    /**
+     *  Returns the raw throughput data without calculating the average. This can be used to calculate the current throughput yourself.
+     *
+     * @param {MediaType} type
+     * @return {Array} value
+     * @memberof module:MediaPlayer
+     * @instance
+     */
+    function getRawThroughputData(type) {
+        return throughputController ? throughputController.getRawThroughputData(type) : [];
     }
 
     /**
@@ -1359,7 +1491,7 @@ function MediaPlayer() {
             _detectMss();
 
             if (streamController) {
-                streamController.switchToVideoElement();
+                streamController.switchToVideoElement(providedStartTime);
             }
         }
 
@@ -1367,7 +1499,7 @@ function MediaPlayer() {
             _resetPlaybackControllers();
         }
 
-        _initializePlayback();
+        _initializePlayback(providedStartTime);
     }
 
     /**
@@ -1395,26 +1527,141 @@ function MediaPlayer() {
         videoModel.setTTMLRenderingDiv(div);
     }
 
+    function attachVttRenderingDiv(div) {
+        if (!videoModel.getElement()) {
+            throw ELEMENT_NOT_ATTACHED_ERROR;
+        }
+        videoModel.setVttRenderingDiv(div);
+    }
+
     /*
     ---------------------------------------------------------------------------
 
-        STREAM AND TRACK MANAGEMENT
+        QUALITY AND TRACK MANAGEMENT
 
     ---------------------------------------------------------------------------
     */
+
+    /**
+     * Gets the current download quality for media type video, audio or images. For video and audio types the ABR
+     * rules update this value before every new download unless autoSwitchBitrate is set to false. For 'image'
+     * type, thumbnails, there is no ABR algorithm and quality is set manually.
+     *
+     * @param {MediaType} type - 'video', 'audio' or 'image' (thumbnails)
+     * @returns {Representation | null} the quality index, 0 corresponding to the lowest bitrate
+     * @memberof module:MediaPlayer
+     * @see {@link module:MediaPlayer#getCurrentRepresentationForType getCurrentRepresentationForType()}
+     * @throws {@link module:MediaPlayer~STREAMING_NOT_INITIALIZED_ERROR STREAMING_NOT_INITIALIZED_ERROR} if called before initializePlayback function
+     * @instance
+     */
+    function getCurrentRepresentationForType(type) {
+        if (!streamingInitialized) {
+            throw STREAMING_NOT_INITIALIZED_ERROR;
+        }
+
+        if (type !== Constants.IMAGE && type !== Constants.VIDEO && type !== Constants.AUDIO) {
+            return null;
+        }
+
+        const activeStream = getActiveStream();
+        if (!activeStream) {
+            return null;
+        }
+
+        if (type === Constants.IMAGE) {
+            const thumbnailController = activeStream.getThumbnailController();
+            return !thumbnailController ? -1 : thumbnailController.getCurrentTrack();
+        }
+
+        return activeStream.getCurrentRepresentationForType(type);
+    }
+
+    /**
+     * Sets the current quality for media type instead of letting the ABR Heuristics automatically select it.
+     * This value will be overwritten by the ABR rules unless autoSwitchBitrate is set to false.
+     *
+     * @param {MediaType} type - 'video', 'audio' or 'image'
+     * @param {number} id , The ID of the Representation
+     * @param {boolean} forceReplace - true if segments have to be replaced by segments of the new quality
+     * @memberof module:MediaPlayer
+     * @throws {@link module:MediaPlayer~STREAMING_NOT_INITIALIZED_ERROR STREAMING_NOT_INITIALIZED_ERROR} if called before initializePlayback function
+     * @instance
+     */
+    function setRepresentationForTypeById(type, id, forceReplace = false) {
+        if (type !== Constants.IMAGE && type !== Constants.VIDEO && type !== Constants.AUDIO) {
+            return;
+        }
+        if (!streamingInitialized) {
+            throw STREAMING_NOT_INITIALIZED_ERROR;
+        }
+        const activeStream = getActiveStream();
+        if (!activeStream) {
+            return;
+        }
+        if (type === Constants.IMAGE) {
+            const thumbnailController = activeStream.getThumbnailController();
+            if (thumbnailController) {
+                thumbnailController.setTrackById(id);
+            }
+        } else {
+            const representation = activeStream.getRepresentationForTypeById(type, id);
+            if (representation) {
+                abrController.setPlaybackQuality(type, streamController.getActiveStreamInfo(), representation, { forceReplace });
+            }
+        }
+    }
+
+    /**
+     * Sets the current quality for media type instead of letting the ABR Heuristics automatically select it.
+     * This value will be overwritten by the ABR rules unless autoSwitchBitrate is set to false.
+     * Note that you need to specify a relative index based on the position of the target entry in the return value of getRepresentationsByType().
+     * Do NOT use representation.absoluteIndex here as this index was assigned prior to applying any filter function. If you want to select a specific representation then use setRepresentationForTypeById() instead.
+     *
+     * @param {MediaType} type - 'video', 'audio' or 'image'
+     * @param {number} index - the quality index, 0 corresponding to the lowest possible index
+     * @param {boolean} forceReplace - true if segments have to be replaced by segments of the new quality
+     * @memberof module:MediaPlayer
+     * @throws {@link module:MediaPlayer~STREAMING_NOT_INITIALIZED_ERROR STREAMING_NOT_INITIALIZED_ERROR} if called before initializePlayback function
+     * @instance
+     */
+    function setRepresentationForTypeByIndex(type, index, forceReplace = false) {
+        if (type !== Constants.IMAGE && type !== Constants.VIDEO && type !== Constants.AUDIO) {
+            return;
+        }
+        if (!streamingInitialized) {
+            throw STREAMING_NOT_INITIALIZED_ERROR;
+        }
+        const activeStream = getActiveStream();
+        if (!activeStream) {
+            return;
+        }
+        if (type === Constants.IMAGE) {
+            const thumbnailController = activeStream.getThumbnailController();
+            if (thumbnailController) {
+                thumbnailController.setTrackByIndex(index);
+            }
+        } else {
+            const representation = activeStream.getRepresentationForTypeByIndex(type, index);
+            if (representation) {
+                abrController.setPlaybackQuality(type, streamController.getActiveStreamInfo(), representation, { forceReplace });
+            }
+        }
+    }
+
     /**
      * @param {MediaType} type
+     * @param {string} streamId
      * @returns {Array}
      * @memberof module:MediaPlayer
      * @throws {@link module:MediaPlayer~STREAMING_NOT_INITIALIZED_ERROR STREAMING_NOT_INITIALIZED_ERROR} if called before initializePlayback function
      * @instance
      */
-    function getBitrateInfoListFor(type) {
+    function getRepresentationsByType(type, streamId = null) {
         if (!streamingInitialized) {
             throw STREAMING_NOT_INITIALIZED_ERROR;
         }
-        let stream = getActiveStream();
-        return stream ? stream.getBitrateListFor(type) : [];
+        let stream = streamId ? streamController.getStreamById(streamId) : getActiveStream();
+        return stream ? stream.getRepresentationsByType(type) : [];
     }
 
     /**
@@ -1450,7 +1697,10 @@ function MediaPlayer() {
             return [];
         }
 
-        return mediaController.getTracksFor(type, streamInfo.id);
+        const tracks = mediaController.getTracksFor(type, streamInfo.id);
+        return tracks.filter((track) => {
+            return protectionController ? protectionController.areKeyIdsUsable(track.normalizedKeyIds) : true
+        })
     }
 
     /**
@@ -1486,18 +1736,23 @@ function MediaPlayer() {
             throw STREAMING_NOT_INITIALIZED_ERROR;
         }
         let streamInfo = streamController.getActiveStreamInfo();
-        return mediaController.getCurrentTrackFor(type, streamInfo.id);
+        if (streamInfo) {
+            return mediaController.getCurrentTrackFor(type, streamInfo.id);
+        }
+
+        return null
     }
 
     /**
      * This method allows to set media settings that will be used to pick the initial track. Format of the settings
      * is following: <br />
-     * {lang: langValue (can be either a string or a regex to match),
+     * {lang: langValue (can be either a string primitive, a string object, or a RegExp object to match),
      *  index: indexValue,
-     *  viewpoint: viewpointValue,
-     *  audioChannelConfiguration: audioChannelConfigurationValue,
-     *  accessibility: accessibilityValue,
-     *  role: roleValue}
+     *  viewpoint: viewpointValue (object:{schemeIdUri,value} or value-primitive),
+     *  audioChannelConfiguration: audioChannelConfigurationValue (object:{schemeIdUri,value} or value-primitive (assumes schemeIdUri='urn:mpeg:mpegB:cicp:ChannelConfiguration')),
+     *  accessibility: accessibilityValue (object:{schemeIdUri,value} or value-primitive (assumes schemeIdUri='urn:mpeg:dash:role:2011')),
+     *  role: roleValue (object:{schemeIdUri,value} or value-primitive (assumes schemeIdUri='urn:mpeg:dash:role:2011'))
+     * }
      *
      * @param {MediaType} type
      * @param {Object} value
@@ -1509,7 +1764,8 @@ function MediaPlayer() {
         if (!mediaPlayerInitialized) {
             throw MEDIA_PLAYER_NOT_INITIALIZED_ERROR;
         }
-        mediaController.setInitialSettings(type, value);
+        let sanitizedValue = _sanitizeSettings(value);
+        mediaController.setInitialSettings(type, sanitizedValue);
     }
 
     /**
@@ -1536,15 +1792,24 @@ function MediaPlayer() {
 
     /**
      * @param {MediaInfo} track - instance of {@link MediaInfo}
+     * @param {boolean} [noSettingsSave] - specify if settings from the track must not be saved for incoming track selection
      * @memberof module:MediaPlayer
      * @throws {@link module:MediaPlayer~STREAMING_NOT_INITIALIZED_ERROR STREAMING_NOT_INITIALIZED_ERROR} if called before initializePlayback function
      * @instance
      */
-    function setCurrentTrack(track) {
+    function setCurrentTrack(track, noSettingsSave = false) {
         if (!streamingInitialized) {
             throw STREAMING_NOT_INITIALIZED_ERROR;
         }
-        mediaController.setTrack(track);
+
+        const canUseTrack = protectionController ? protectionController.areKeyIdsUsable(track.normalizedKeyIds) : true
+
+        if (!canUseTrack) {
+            logger.error(`Can not switch to track with index ${track.index} because key is not usable`);
+            return
+        }
+
+        mediaController.setTrack(track, { noSettingsSave });
     }
 
     /*
@@ -1556,7 +1821,7 @@ function MediaPlayer() {
     */
     /**
      * Registers a custom capabilities filter. This enables application to filter representations to use.
-     * The provided callback function shall return a boolean based on whether or not to use the representation.
+     * The provided callback function shall return either a boolean or a promise resolving to a boolean based on whether or not to use the representation.
      * The filters are applied in the order they are registered.
      * @param {function} filter - the custom capabilities filter callback
      * @memberof module:MediaPlayer
@@ -1590,6 +1855,50 @@ function MediaPlayer() {
     function resetCustomInitialTrackSelectionFunction() {
         customParametersModel.resetCustomInitialTrackSelectionFunction(null);
 
+    }
+
+    /**
+     * Adds a request interceptor. This enables application to monitor, manipulate, overwrite any request parameter and/or request data.
+     * The provided callback function shall return a promise with updated request that shall be resolved once the process of the request is completed.
+     * The interceptors are applied in the order they are added.
+     * @param {function} interceptor - the request interceptor callback
+     * @memberof module:MediaPlayer
+     * @instance
+     */
+    function addRequestInterceptor(interceptor) {
+        customParametersModel.addRequestInterceptor(interceptor);
+    }
+
+    /**
+     * Removes a request interceptor.
+     * @param {function} interceptor - the request interceptor callback
+     * @memberof module:MediaPlayer
+     * @instance
+     */
+    function removeRequestInterceptor(interceptor) {
+        customParametersModel.removeRequestInterceptor(interceptor);
+    }
+
+    /**
+     * Adds a response interceptor. This enables application to monitor, manipulate, overwrite the response data
+     * The provided callback function shall return a promise with updated response that shall be resolved once the process of the response is completed.
+     * The interceptors are applied in the order they are added.
+     * @param {function} interceptor - the response interceptor
+     * @memberof module:MediaPlayer
+     * @instance
+     */
+    function addResponseInterceptor(interceptor) {
+        customParametersModel.addResponseInterceptor(interceptor);
+    }
+
+    /**
+     * Removes a response interceptor.
+     * @param {function} interceptor - the request interceptor
+     * @memberof module:MediaPlayer
+     * @instance
+     */
+    function removeResponseInterceptor(interceptor) {
+        customParametersModel.removeResponseInterceptor(interceptor);
     }
 
     /**
@@ -1707,7 +2016,7 @@ function MediaPlayer() {
             callback(null);
             return;
         }
-        const s = playbackController.getIsDynamic() ? getDVRSeekOffset(time) : time;
+        const s = playbackController.getIsDynamic() ? getDvrSeekOffset(time) : time;
         const stream = streamController.getStreamForTime(s);
         if (stream === null) {
             callback(null);
@@ -1731,9 +2040,7 @@ function MediaPlayer() {
     ---------------------------------------------------------------------------
     */
     /**
-     * Allows application to retrieve a manifest.  Manifest loading is asynchro
-     * nous and
-     * requires the app-provided callback function
+     * Allows application to retrieve a manifest.  Manifest loading is asynchronous and requires the app-provided callback function
      *
      * @param {string} url - url the manifest url
      * @param {function} callback - A Callback function provided when retrieving manifests
@@ -1777,7 +2084,7 @@ function MediaPlayer() {
     /**
      * Sets the source to a new manifest URL or object without reloading
      * Useful for updating CDN tokens
-     * @param urlOrManifest
+     * @param {string | object} urlOrManifest
      */
     function updateSource(urlOrManifest) {
         source = urlOrManifest
@@ -1791,14 +2098,17 @@ function MediaPlayer() {
      *
      * @param {string|Object} urlOrManifest - A URL to a valid MPD manifest file, or a
      * parsed manifest object.
-     *
+     * @param {number|string} startTime - For VoD content the start time is relative to the start time of the first period.
+     * For live content
+     * If the parameter starts from prefix posix: it signifies the absolute time range defined in seconds of Coordinated Universal Time (ITU-R TF.460-6). This is the number of seconds since 01-01-1970 00:00:00 UTC. Fractions of seconds may be optionally specified down to the millisecond level.
+     * If no posix prefix is used the starttime is relative to MPD@availabilityStartTime
      *
      * @throws {@link module:MediaPlayer~MEDIA_PLAYER_NOT_INITIALIZED_ERROR MEDIA_PLAYER_NOT_INITIALIZED_ERROR} if called before initialize function
      *
      * @memberof module:MediaPlayer
      * @instance
      */
-    function attachSource(urlOrManifest) {
+    function attachSource(urlOrManifest, startTime = NaN) {
         if (!mediaPlayerInitialized) {
             throw MEDIA_PLAYER_NOT_INITIALIZED_ERROR;
         }
@@ -1807,6 +2117,15 @@ function MediaPlayer() {
             uriFragmentModel.initialize(urlOrManifest);
         }
 
+        if (startTime == null) {
+            startTime = NaN;
+        }
+
+        if (!isNaN(startTime)) {
+            startTime = Math.max(0, startTime);
+        }
+
+        providedStartTime = startTime;
         source = urlOrManifest;
 
         if (streamingInitialized || playbackInitialized) {
@@ -1814,8 +2133,44 @@ function MediaPlayer() {
         }
 
         if (isReady()) {
-            _initializePlayback();
+            _initializePlayback(providedStartTime);
         }
+    }
+
+    /**
+     *  Reload the manifest that the player is currently using.
+     *
+     *  @memberof module:MediaPlayer
+     *  @param {function} callback - A Callback function provided when retrieving manifests
+     *  @instance
+     */
+    function refreshManifest(callback) {
+        if (!mediaPlayerInitialized) {
+            throw MEDIA_PLAYER_NOT_INITIALIZED_ERROR;
+        }
+
+        if (!isReady()) {
+            return callback(null, SOURCE_NOT_ATTACHED_ERROR);
+        }
+
+        let self = this;
+
+        if (typeof callback === 'function') {
+            const handler = function (e) {
+                eventBus.off(Events.INTERNAL_MANIFEST_LOADED, handler, self);
+
+                if (e.error) {
+                    callback(null, e.error);
+                    return;
+                }
+
+                callback(e.manifest);
+            };
+
+            eventBus.on(Events.INTERNAL_MANIFEST_LOADED, handler, self);
+        }
+
+        streamController.refreshManifest();
     }
 
     /**
@@ -1955,6 +2310,66 @@ function MediaPlayer() {
         return adapter;
     }
 
+    /**
+     * Triggers a request to the content steering server to update the steering information.
+     * @return {Promise<any>}
+     */
+    function triggerSteeringRequest() {
+        if (contentSteeringController) {
+            return contentSteeringController.loadSteeringData();
+        }
+    }
+
+    /**
+     * Returns the current response data of the content steering server
+     * @return {object}
+     */
+    function getCurrentSteeringResponseData() {
+        if (contentSteeringController) {
+            return contentSteeringController.getCurrentSteeringResponseData();
+        }
+    }
+
+    /**
+     * Returns the current manifest
+     * @returns {object}
+     */
+    function getManifest() {
+        return manifestModel.getValue();
+    }
+
+    /**
+     * Returns all BaseURLs that are available including synthesized elements (e.g by content steering)
+     * @returns {BaseURL[]}
+     */
+    function getAvailableBaseUrls() {
+        const manifest = manifestModel.getValue();
+
+        if (!manifest) {
+            return [];
+        }
+
+        return baseURLController.getBaseUrls(manifest);
+    }
+
+
+    /**
+     * Returns the available location elements including synthesized elements (e.g by content steering)
+     * @returns {MpdLocation[]}
+     */
+    function getAvailableLocations() {
+        const manifest = manifestModel.getValue();
+
+        if (!manifest) {
+            return [];
+        }
+
+        const manifestLocations = adapter.getLocation(manifest);
+        const synthesizedElements = contentSteeringController.getSynthesizedLocationElements(manifestLocations);
+
+        return manifestLocations.concat(synthesizedElements);
+    }
+
     //***********************************
     // PRIVATE METHODS
     //***********************************
@@ -1968,7 +2383,9 @@ function MediaPlayer() {
         catchupController.reset();
         playbackController.reset();
         serviceDescriptionController.reset();
+        contentSteeringController.reset();
         abrController.reset();
+        throughputController.reset();
         mediaController.reset();
         segmentBaseController.reset();
         if (protectionController) {
@@ -1982,6 +2399,7 @@ function MediaPlayer() {
         }
         textController.reset();
         cmcdModel.reset();
+        cmsdModel.reset();
     }
 
     function _createPlaybackControllers() {
@@ -1998,6 +2416,7 @@ function MediaPlayer() {
                 manifestModel,
                 adapter,
                 mediaController,
+                baseURLController,
                 videoModel,
                 settings
             });
@@ -2008,6 +2427,7 @@ function MediaPlayer() {
             customParametersModel,
             adapter,
             settings,
+            protectionController,
             manifestModel,
             errHandler
         });
@@ -2028,7 +2448,9 @@ function MediaPlayer() {
             videoModel,
             playbackController,
             serviceDescriptionController,
+            contentSteeringController,
             abrController,
+            throughputController,
             mediaController,
             settings,
             baseURLController,
@@ -2059,16 +2481,23 @@ function MediaPlayer() {
             streamController,
             playbackController,
             mediaPlayerModel,
-            dashMetrics,
             videoModel,
             settings
         })
 
+        throughputController.setConfig({
+            settings,
+            playbackController
+        })
+
         abrController.setConfig({
             streamController,
+            capabilities,
             domStorage,
             mediaPlayerModel,
             customParametersModel,
+            throughputController,
+            cmsdModel,
             dashMetrics,
             adapter,
             videoModel,
@@ -2078,16 +2507,28 @@ function MediaPlayer() {
         cmcdModel.setConfig({
             abrController,
             dashMetrics,
-            playbackController
+            playbackController,
+            serviceDescriptionController,
+            throughputController,
         });
 
-        // initialises controller
+        clientDataReportingController.setConfig({
+            serviceDescriptionController
+        })
+
+        cmsdModel.setConfig({});
+
+        // initializes controller
+        mediaController.initialize();
+        throughputController.initialize();
         abrController.initialize();
         streamController.initialize(autoPlay, protectionData);
         textController.initialize();
         gapController.initialize();
         catchupController.initialize();
-        cmcdModel.initialize();
+        cmcdModel.initialize(autoPlay);
+        cmsdModel.initialize();
+        contentSteeringController.initialize();
         segmentBaseController.initialize();
     }
 
@@ -2097,7 +2538,6 @@ function MediaPlayer() {
             errHandler: errHandler,
             dashMetrics: dashMetrics,
             mediaPlayerModel: mediaPlayerModel,
-            requestModifier: RequestModifier(context).getInstance(),
             mssHandler: mssHandler,
             settings: settings
         });
@@ -2107,18 +2547,20 @@ function MediaPlayer() {
         if (protectionController) {
             return protectionController;
         }
+
+        if (typeof dashjs === 'undefined') {
+            return null
+        }
         // do not require Protection as dependencies as this is optional and intended to be loaded separately
-        let Protection = dashjs.Protection; /* jshint ignore:line */
-        if (typeof Protection === 'function') { //TODO need a better way to register/detect plugin components
-            let protection = Protection(context).create();
-            Events.extend(Protection.events);
-            MediaPlayerEvents.extend(Protection.events, {
+        let detectedProtection = dashjs.Protection;
+        if (typeof detectedProtection === 'function') { //TODO need a better way to register/detect plugin components
+            let protection = detectedProtection(context).create();
+            Events.extend(detectedProtection.events);
+            MediaPlayerEvents.extend(detectedProtection.events, {
                 publicOnly: true
             });
-            Errors.extend(Protection.errors);
-            if (!capabilities) {
-                capabilities = Capabilities(context).getInstance();
-            }
+            Errors.extend(detectedProtection.errors);
+
             protectionController = protection.createProtectionSystem({
                 debug,
                 errHandler,
@@ -2133,6 +2575,12 @@ function MediaPlayer() {
                 settings
             });
 
+            if (!capabilities) {
+                capabilities = Capabilities(context).getInstance();
+            }
+
+            capabilities.setProtectionController(protectionController);
+
             return protectionController;
         }
 
@@ -2140,13 +2588,13 @@ function MediaPlayer() {
     }
 
     function _detectMetricsReporting() {
-        if (metricsReportingController) {
+        if (metricsReportingController || typeof dashjs === 'undefined') {
             return;
         }
         // do not require MetricsReporting as dependencies as this is optional and intended to be loaded separately
-        let MetricsReporting = dashjs.MetricsReporting; /* jshint ignore:line */
-        if (typeof MetricsReporting === 'function') { //TODO need a better way to register/detect plugin components
-            let metricsReporting = MetricsReporting(context).create();
+        let detectedMetricsReporting = dashjs.MetricsReporting;
+        if (typeof detectedMetricsReporting === 'function') { //TODO need a better way to register/detect plugin components
+            let metricsReporting = detectedMetricsReporting(context).create();
 
             metricsReportingController = metricsReporting.createMetricsReporting({
                 debug: debug,
@@ -2163,14 +2611,15 @@ function MediaPlayer() {
     }
 
     function _detectMss() {
-        if (mssHandler) {
+        if (mssHandler || typeof dashjs === 'undefined') {
             return;
         }
+
         // do not require MssHandler as dependencies as this is optional and intended to be loaded separately
-        let MssHandler = dashjs.MssHandler; /* jshint ignore:line */
-        if (typeof MssHandler === 'function') { //TODO need a better way to register/detect plugin components
-            Errors.extend(MssHandler.errors);
-            mssHandler = MssHandler(context).create({
+        let detectedMssHandler = dashjs.MssHandler;
+        if (typeof detectedMssHandler === 'function') { //TODO need a better way to register/detect plugin components
+            Errors.extend(detectedMssHandler.errors);
+            mssHandler = detectedMssHandler(context).create({
                 eventBus: eventBus,
                 mediaPlayerModel: mediaPlayerModel,
                 dashMetrics: dashMetrics,
@@ -2200,27 +2649,32 @@ function MediaPlayer() {
             return offlineController;
         }
 
-        // do not require Offline as dependencies as this is optional and intended to be loaded separately
-        let OfflineController = dashjs.OfflineController; /* jshint ignore:line */
+        if (typeof dashjs === 'undefined') {
+            return null
+        }
 
-        if (typeof OfflineController === 'function') { //TODO need a better way to register/detect plugin components
-            Events.extend(OfflineController.events);
-            MediaPlayerEvents.extend(OfflineController.events, {
+        // do not require Offline as dependencies as this is optional and intended to be loaded separately
+        let detectedOfflineController = dashjs.OfflineController;
+
+        if (typeof detectedOfflineController === 'function') { //TODO need a better way to register/detect plugin components
+            Events.extend(detectedOfflineController.events);
+            MediaPlayerEvents.extend(detectedOfflineController.events, {
                 publicOnly: true
             });
-            Errors.extend(OfflineController.errors);
+            Errors.extend(detectedOfflineController.errors);
 
             const manifestLoader = _createManifestLoader();
             const manifestUpdater = ManifestUpdater(context).create();
 
             manifestUpdater.setConfig({
-                manifestModel: manifestModel,
-                adapter: adapter,
-                manifestLoader: manifestLoader,
-                errHandler: errHandler
+                manifestModel,
+                adapter,
+                manifestLoader,
+                errHandler,
+                contentSteeringController
             });
 
-            offlineController = OfflineController(context).create({
+            offlineController = detectedOfflineController(context).create({
                 debug: debug,
                 manifestUpdater: manifestUpdater,
                 baseURLController: baseURLController,
@@ -2249,21 +2703,55 @@ function MediaPlayer() {
         return null;
     }
 
-    function _getAsUTC(valToConvert) {
-        const type = streamController && streamController.hasVideoTrack() ? Constants.VIDEO : Constants.AUDIO;
-        let metric = dashMetrics.getCurrentDVRInfo(type);
-        let availableFrom,
-            utcValue;
+    function _sanitizeSettings(value) {
+        const defaults = settings.get().streaming.defaultSchemeIdUri;
+        let output = {};
 
-        if (!metric) {
-            return 0;
+        function __sanitizeDescriptorType(name, val, defaultSchemeIdUri) {
+            let out = {};
+            if (val) {
+                if (val instanceof Array) {
+                    throw ARRAY_NOT_SUPPORTED_ERROR;
+                } else if (val instanceof Object) {
+                    out.schemeIdUri = val.schemeIdUri ? val.schemeIdUri : '';
+                    out.value = val.value ? val.value : '';
+                } else {
+                    out.schemeIdUri = defaultSchemeIdUri;
+                    out.value = val;
+                    logger.warn('No schemeIdUri provided for ' + name + ', using default \"' + defaultSchemeIdUri + '\"');
+                }
+                return out;
+            }
+            return null;
         }
-        availableFrom = metric.manifestInfo.availableFrom.getTime() / 1000;
-        utcValue = valToConvert + (availableFrom + metric.range.start);
-        return utcValue;
+
+        if (value.lang) {
+            output.lang = value.lang;
+        }
+        if (!isNaN(value.index)) {
+            output.index = value.index;
+        }
+        if (value.viewpoint) {
+            output.viewpoint = __sanitizeDescriptorType('viewpoint', value.viewpoint, defaults.viewpoint);
+        }
+        if (value.audioChannelConfiguration) {
+            output.audioChannelConfiguration = __sanitizeDescriptorType('audioChannelConfiguration', value.audioChannelConfiguration, defaults.audioChannelConfiguration);
+        }
+        if (value.role) {
+            output.role = __sanitizeDescriptorType('role', value.role, defaults.role);
+        }
+        if (value.accessibility) {
+            output.accessibility = __sanitizeDescriptorType('accessibility', value.accessibility, defaults.accessibility);
+        }
+
+        return output;
     }
 
-    function _initializePlayback() {
+    /**
+     *
+     * @private
+     */
+    function _initializePlayback(startTime = NaN) {
 
         if (offlineController) {
             offlineController.resetRecords();
@@ -2275,110 +2763,128 @@ function MediaPlayer() {
             _createPlaybackControllers();
 
             if (typeof source === 'string') {
-                streamController.load(source);
+                streamController.load(source, startTime);
             } else {
-                streamController.loadWithManifest(source);
+                streamController.loadWithManifest(source, startTime);
             }
         }
 
         if (!playbackInitialized && isReady()) {
             playbackInitialized = true;
+            eventBus.trigger(MediaPlayerEvents.PLAYBACK_INITIALIZED)
             logger.info('Playback Initialized');
         }
     }
 
     instance = {
-        initialize,
-        setConfig,
-        on,
-        off,
-        extend,
-        attachView,
+        addABRCustomRule,
+        addRequestInterceptor,
+        addResponseInterceptor,
+        addUTCTimingSource,
+        attachProtectionController,
         attachSource,
-        isReady,
-        play,
-        isPaused,
-        pause,
-        isSeeking,
-        isDynamic,
-        getLowLatencyModeEnabled,
-        seek,
-        setPlaybackRate,
-        getPlaybackRate,
-        setMute,
-        isMuted,
-        setVolume,
-        getVolume,
-        time,
-        duration,
-        timeAsUTC,
-        durationAsUTC,
-        getActiveStream,
-        getDVRWindowSize,
-        getDVRSeekOffset,
-        getTargetLiveDelay,
+        attachTTMLRenderingDiv,
+        attachView,
+        attachVttRenderingDiv,
+        clearDefaultUTCTimingSources,
         convertToTimeCode,
-        formatUTC,
-        getVersion,
-        getDebug,
-        getBufferLength,
-        getTTMLRenderingDiv,
-        getVideoElement,
-        getSource,
-        updateSource,
-        getCurrentLiveLatency,
-        getTopBitrateInfoFor,
-        setAutoPlay,
-        getAutoPlay,
-        getDashMetrics,
-        getQualityFor,
-        setQualityFor,
-        updatePortalSize,
-        enableText,
+        destroy,
+        duration,
         enableForcedTextStreaming,
-        isTextEnabled,
-        setTextTrack,
-        getBitrateInfoListFor,
+        enableText,
+        extend,
+        formatUTC,
+        getABRCustomRules,
+        getActiveStream,
+        getAutoPlay,
+        getAvailableBaseUrls,
+        getAvailableLocations,
+        getAverageLatency,
+        getAverageThroughput,
+        getBufferLength,
+        getCurrentLiveLatency,
+        getCurrentRepresentationForType,
+        getCurrentSteeringResponseData,
+        getCurrentTextTrackIndex,
+        getCurrentTrackFor,
+        getDashAdapter,
+        getDashMetrics,
+        getDebug,
+        getDvrSeekOffset,
+        getDvrWindow,
+        getInitialMediaSettingsFor,
+        getLowLatencyModeEnabled,
+        getManifest,
+        getOfflineController,
+        getPlaybackRate,
+        getProtectionController,
+        getRawThroughputData,
+        getRepresentationsByType,
+        getSafeAverageThroughput,
+        getSettings,
+        getSource,
         getStreamsFromManifest,
+        getTTMLRenderingDiv,
+        getTargetLiveDelay,
         getTracksFor,
         getTracksForTypeFromManifest,
-        getCurrentTrackFor,
-        setInitialMediaSettingsFor,
-        getInitialMediaSettingsFor,
-        setCurrentTrack,
-        addABRCustomRule,
-        removeABRCustomRule,
-        removeAllABRCustomRule,
-        getABRCustomRules,
-        getAverageThroughput,
-        retrieveManifest,
-        addUTCTimingSource,
-        removeUTCTimingSource,
-        clearDefaultUTCTimingSources,
-        restoreDefaultUTCTimingSources,
-        setXHRWithCredentialsForType,
+        getVersion,
+        getVideoElement,
+        getVolume,
         getXHRWithCredentialsForType,
-        getProtectionController,
-        attachProtectionController,
-        setProtectionData,
+        initialize,
+        isDynamic,
+        isMuted,
+        isPaused,
+        isReady,
+        isSeeking,
+        isTextEnabled,
+        off,
+        on,
+        pause,
+        play,
+        preload,
+        provideThumbnail,
+        refreshManifest,
+        registerCustomCapabilitiesFilter,
         registerLicenseRequestFilter,
         registerLicenseResponseFilter,
+        removeABRCustomRule,
+        removeAllABRCustomRule,
+        removeRequestInterceptor,
+        removeResponseInterceptor,
+        removeUTCTimingSource,
+        reset,
+        resetCustomInitialTrackSelectionFunction,
+        resetSettings,
+        restoreDefaultUTCTimingSources,
+        retrieveManifest,
+        seek,
+        seekToOriginalLive,
+        seekToPresentationTime,
+        setAutoPlay,
+        setConfig,
+        setCurrentTrack,
+        setCustomInitialTrackSelectionFunction,
+        setInitialMediaSettingsFor,
+        setMute,
+        setPlaybackRate,
+        setProtectionData,
+        setRepresentationForTypeById,
+        setRepresentationForTypeByIndex,
+        setTextTrack,
+        setVolume,
+        setXHRWithCredentialsForType,
+        time,
+        timeAsUTC,
+        timeInDvrWindow,
+        trigger,
+        triggerSteeringRequest,
+        unregisterCustomCapabilitiesFilter,
         unregisterLicenseRequestFilter,
         unregisterLicenseResponseFilter,
-        registerCustomCapabilitiesFilter,
-        unregisterCustomCapabilitiesFilter,
-        setCustomInitialTrackSelectionFunction,
-        resetCustomInitialTrackSelectionFunction,
-        attachTTMLRenderingDiv,
-        getCurrentTextTrackIndex,
-        provideThumbnail,
-        getDashAdapter,
-        getOfflineController,
-        getSettings,
         updateSettings,
-        resetSettings,
-        reset,
-        destroy
+        updateSource,
     };
 
     setup();

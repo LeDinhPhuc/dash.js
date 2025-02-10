@@ -4,7 +4,7 @@
     <meta charset="utf-8">
     <title>Listening to SCTE-EMSG Events</title>
 
-    <script src="../../dist/dash.all.debug.js"></script>
+    <script src="../../dist/modern/umd/dash.all.debug.js"></script>
 
     <!-- Bootstrap core CSS -->
     <link href="../lib/bootstrap/bootstrap.min.css" rel="stylesheet">
@@ -25,17 +25,17 @@
 
     <script class="code">
         var player;
-        const URL = "https://livesim.dashif.org/livesim/scte35_2/testpic_2s/Manifest.mpd";
-        const SCHEMEIDURI = "urn:scte:scte35:2013:xml";
+        const mpd = "https://livesim2.dashif.org/livesim2/scte35_2/testpic_2s/Manifest.mpd";
+        const SCHEMEIDURI = "urn:scte:scte35:2013:bin";
         const EVENT_MODE_ON_START = dashjs.MediaPlayer.events.EVENT_MODE_ON_START;
         const EVENT_MODE_ON_RECEIVE = dashjs.MediaPlayer.events.EVENT_MODE_ON_RECEIVE;
 
         function init() {
             player = dashjs.MediaPlayer().create();
-            player.updateSettings({ 'debug': { 'logLevel': dashjs.Debug.LOG_LEVEL_NONE }});
+            player.updateSettings({ 'debug': { 'logLevel': dashjs.Debug.LOG_LEVEL_DEBUG }});
             player.on(SCHEMEIDURI, showStartEvent, null); /* Default mode is onStart, no need to specify a mode */
             player.on(SCHEMEIDURI, showReceiveEvent, null, { mode: EVENT_MODE_ON_RECEIVE });
-            player.initialize(document.querySelector("video"), URL, true);
+            player.initialize(document.querySelector("video"), mpd, true);
         }
 
         function showStartEvent(e) {
@@ -101,7 +101,7 @@
                     <textarea class="form-control" placeholder="Trapped on_receive events will be displayed here" id="receive"></textarea>
                     <label for="receive">Received Events</label>
                 </div>
-            </div>            
+            </div>
             <div class="col-md-6">
                 <div class="form-floating">
                     <textarea class="form-control" placeholder="Trapped on_start events will be displayed here" id="start"></textarea>

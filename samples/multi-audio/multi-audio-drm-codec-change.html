@@ -4,7 +4,7 @@
     <meta charset="utf-8">
     <title>Multiple audio tracks sample</title>
     <script class="code" src="../../contrib/akamai/controlbar/ControlBar.js"></script>
-    <script src="../../dist/dash.all.debug.js"></script>
+    <script src="../../dist/modern/umd/dash.all.debug.js"></script>
 
     <!-- Bootstrap core CSS -->
     <link href="../lib/bootstrap/bootstrap.min.css" rel="stylesheet">
@@ -31,7 +31,7 @@
             var player = dashjs.MediaPlayer().create();
             player.setProtectionData({
                 'com.widevine.alpha': {
-                    serverURL: 'https://widevine-proxy.appspot.com/proxy?video_id=&provider='
+                    serverURL: 'https://cwip-shaka-proxy.appspot.com/no_auth'
                 }
             });
             player.initialize(videoElement, url, true);

@@ -4,7 +4,7 @@
     <meta charset="utf-8">
     <title>Audio only stream example</title>
 
-    <script src="../../dist/dash.all.debug.js"></script>
+    <script src="../../dist/modern/umd/dash.all.debug.js"></script>
 
     <!-- Bootstrap core CSS -->
     <link href="../lib/bootstrap/bootstrap.min.css" rel="stylesheet">
@@ -21,7 +21,7 @@
         function init() {
             var audio,
                 player,
-                url = "https://livesim.dashif.org/dash/vod/testpic_2s/audio.mpd";
+                url = "https://livesim2.dashif.org/vod/testpic_2s/audio.mpd";
 
             audio = document.querySelector("audio");
             player = dashjs.MediaPlayer().create();
